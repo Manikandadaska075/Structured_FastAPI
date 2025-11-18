@@ -1,16 +1,13 @@
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
 from jose import jwt, JWTError, ExpiredSignatureError
-from fastapi import HTTPException, status
 from typing import Optional
-from app.repositories.user_repository import UserRepository
-from app.models.user_model import User
-from app.schemas.user_schemas import userDetail, userUpdate
 from sqlmodel import Session
 from fastapi.security import OAuth2PasswordBearer
-from app.config.database import get_session
-from app.config.database import get_engine
+from app.repositories.user_repository import UserRepository
+from app.models.user_model import User
+from app.config.database import get_session, get_engine
 
 SECRET_KEY = "12354477463543"
 ALGORITHM = "HS256"
@@ -72,21 +69,21 @@ class UserService:
         return user
 
     @staticmethod
-    def register_admin(session, user_data: userDetail):
-        if user_data.designation.lower() != "hr":
+    def register_admin(session, user_data: dict):
+        if user_data["designation"].lower() != "hr":
             raise HTTPException(status_code=403, detail="Only HR can register as admin")
-        if UserRepository.get_user_by_email(session, user_data.email):
+        if UserRepository.get_user_by_email(session, user_data["email"]):
             raise HTTPException(status_code=400, detail="User already exists")
 
         user = User(
-            email=user_data.email,
-            userFirstName=user_data.userFirstName,
-            userLastName=user_data.userLastName,
-            password=UserService.hash_password(user_data.password),
-            designation=user_data.designation,
-            phoneNumber=user_data.phoneNumber,
-            address=user_data.address,
-            isSuperUser=user_data.isSuperUser
+            email=user_data["email"],
+            userFirstName=user_data["userFirstName"],
+            userLastName=user_data["userLastName"],
+            password=UserService.hash_password(user_data["password"]),
+            designation=user_data["designation"],
+            phoneNumber=user_data["phoneNumber"],
+            address=user_data.get("address"),
+            isSuperUser=user_data.get("isSuperUser", True)
         )
         return UserRepository.create_user(session, user)
 
@@ -105,23 +102,29 @@ class UserService:
         return token
 
     @staticmethod
-    def employee_creation(creation: userDetail, current_user, session):
-        # if not current_user:
-        #     raise HTTPException(status_code=401, detail="Not authenticated")
+    def employee_creation(creation, current_user, session):
         if not current_user.isSuperUser:
             raise HTTPException(status_code=403, detail="Only admins can create employees")
-        existing_user = UserRepository.get_user_by_email(session, creation.email)
+        existing_user = UserRepository.get_user_by_email(session, creation["email"])
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
-        hashed_password = UserService.hash_password(creation.password)
-        employee = User(email=creation.email,password=hashed_password,userFirstName=creation.userFirstName,userLastName=creation.userLastName,
-                        designation=creation.designation, phoneNumber=creation.phoneNumber,address=creation.address,isActive=True,
-                    isSuperUser=False)
+        hashed_password = UserService.hash_password(creation["password"])
+        employee = User(
+            email=creation["email"],
+            password=UserService.hash_password(creation["password"]),
+            userFirstName=creation["userFirstName"],
+            userLastName=creation["userLastName"],
+            designation=creation["designation"],
+            phoneNumber=creation["phoneNumber"],
+            address=creation.get("address"),
+            isActive=True,
+            isSuperUser=False
+        )
         created_employee = UserRepository.employee_details_add(session, employee)
         return created_employee
     
     @staticmethod
-    def user_update(data:userUpdate, current_user, session, admin):
+    def user_update(data:dict, current_user, session, admin):
         if not admin:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin is not logged in")
     
@@ -131,16 +134,15 @@ class UserService:
         if not current_user.isActive:
             raise HTTPException(status_code=403, detail="Access denied. Account is not active.")
         
-        if data.password:
-            data.password = UserService.hash_password(data.password)
+        if "password" in data:
+            data["password"] = UserService.hash_password(data["password"])
 
-        update_data = data.model_dump(exclude_unset=True)
-        updated_admin = UserRepository.user_update(session, admin, update_data)
+        updated_admin = UserRepository.user_update(session, admin, data)
 
         return updated_admin
     
     @staticmethod
-    def employee_update(data:userUpdate, employeeEmail:Optional[str], current_user:User, session):
+    def employee_update(data:dict, employeeEmail:Optional[str], current_user:User, session):
         if not current_user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not logged in")
     
@@ -153,11 +155,11 @@ class UserService:
         else:
             employee = UserRepository.get_user_by_email(session, current_user.email)
 
-        if data.password:
-            data.password = UserService.hash_password(data.password)
+        if "password" in data:
+            data["password"] = UserService.hash_password(data["password"])
 
-        update_data = data.model_dump(exclude_unset=True)
-        updated_admin = UserRepository.user_update(session, employee, update_data)
+        # update_data = data.model_dump(exclude_unset=True)
+        updated_admin = UserRepository.user_update(session, employee, data)
         return updated_admin
     
     @staticmethod

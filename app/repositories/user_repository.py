@@ -21,8 +21,9 @@ class UserRepository:
     @staticmethod
     def get_all_or_single_employee(session: Session, employeeEmail):
         if employeeEmail != None:
-            return [session.exec(
-                select(User).where(and_(User.email == employeeEmail, User.isActive == True, User.isSuperUser == False))).first()]
+            result = session.exec(
+                select(User).where(and_(User.email == employeeEmail, User.isActive == True, User.isSuperUser == False))).first()
+            return [result] if result else []
         else:
             return session.exec(select(User).where(and_(User.isSuperUser == False, User.isActive == True))).all()
 

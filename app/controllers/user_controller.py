@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, Security, HTTPException, status, Header
+from fastapi import APIRouter, Depends, Security, Header
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session
 from typing import *
 from app.config.database import get_session
-from app.schemas.user_schemas import tokenResponse, userDetail, userUpdate
 from app.services.user_service import UserService
+from app.utils.validators.user_validator import UserValidator
 from app.repositories.user_repository import UserRepository
 from app.models.user_model import User
 from app.utils import condition_cheacking
@@ -18,10 +18,11 @@ user_router = APIRouter(prefix="/user", tags=["User"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 @user_router.post("/admin/registration")
-def register_admin(user: userDetail, session: Session = Depends(get_session)):
-    return UserService.register_admin(session, user)
+def register_admin(user: dict, session: Session = Depends(get_session)):
+    user_data = UserValidator.validate_creation(user)
+    return UserService.register_admin(session, user_data)
 
-@user_router.post("/login", response_model=tokenResponse)
+@user_router.post("/login")
 def login(email: str = Header(description="User email address"),password: str = Header(description="User password"),
           session: Session = Depends(get_session)):
     token = UserService.login_user(session, email, password)
@@ -34,9 +35,10 @@ def logout(session: Session = Depends(get_session),current_user: User = Security
     return {"message": f"{current_user.email} logged out successfully"}
 
 @user_router.post("/employee/creation")
-def admin_employee_creation(creation: userDetail,session: Session = Depends(get_session),
+def admin_employee_creation(creation: dict, session: Session = Depends(get_session),
                             current_user: User = Security(UserService.get_current_user)):
-    employee = UserService.employee_creation(creation, current_user, session)
+    creation_data = UserValidator.validate_creation(creation) 
+    employee = UserService.employee_creation(creation_data, current_user, session)
     return {"message": "Employee created successfully", "employee": 
             {
                 "email": employee.email,
@@ -125,7 +127,7 @@ def admin_view_employee_details(employeeEmail: Optional[str] = None, current_use
     }
 
 @user_router.get("/admin/views/all/not/active/admin/employee/details")
-def admin_view_not_active_employee_details(admin: bool, current_user: User = Security(UserService.get_current_user),
+def admin_view_not_active_employee_details(admin: Optional[bool] = None, current_user: User = Security(UserService.get_current_user),
                           session: Session = Depends(get_session)):
     condition_cheacking.check_its_admin(current_user.isSuperUser)
     users = UserRepository.get_all_not_active_user(session, admin)
@@ -146,8 +148,9 @@ def admin_view_not_active_employee_details(admin: bool, current_user: User = Sec
     }
 
 @user_router.patch("/admin/profile/update")
-def admin_profile_update(data: userUpdate, current_user: User = Security(UserService.get_current_user), session: Session = Depends(get_session)):
+def admin_profile_update(data: dict, current_user: User = Security(UserService.get_current_user), session: Session = Depends(get_session)):
     admin_details = UserRepository.get_user_by_email(session, current_user.email)
+    data = UserValidator.validate_update(data)
     admin = UserService.user_update(data, current_user, session, admin_details)
     return {"message": "Admin profile updated successfully", "admin": 
             {
@@ -162,8 +165,9 @@ def admin_profile_update(data: userUpdate, current_user: User = Security(UserSer
         }
 
 @user_router.patch("/employee/profile/update")
-def employee_profile_update( data: userUpdate, employeeEmail: Optional[str] =None, current_user: User = Security(UserService.get_current_user),
+def employee_profile_update( data: dict, employeeEmail: Optional[str] =None, current_user: User = Security(UserService.get_current_user),
                    session: Session = Depends(get_session)):
+    data = UserValidator.validate_update(data)
     employee = UserService.employee_update(data, employeeEmail ,current_user, session)
     return {"message": "Profile updated successfully", "employee": 
             {
@@ -178,7 +182,7 @@ def employee_profile_update( data: userUpdate, employeeEmail: Optional[str] =Non
         }
 
 @user_router.delete("/admin/employee/deletion")
-def admin_or_employee_delete(adminOrEmployeeEmail: str,current_user: userDetail = Security(UserService.get_current_user),
+def admin_or_employee_delete(adminOrEmployeeEmail: str,current_user: User = Security(UserService.get_current_user),
                              session: Session = Depends(get_session)):
     admin = UserRepository.get_user_by_email(session, current_user.email)
     UserService.user_deletion(session,admin, adminOrEmployeeEmail)
