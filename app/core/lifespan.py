@@ -7,7 +7,6 @@ scheduler = BackgroundScheduler()
 
 @asynccontextmanager
 async def lifespan(app):
-    print("🚀 Starting Application...")
     init_db()
 
     UserService.delete_inactivate_user_from_table()
